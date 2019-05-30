@@ -1,4 +1,4 @@
-package scheduler
+package scheduler.data
 
 import java.util.UUID
 import java.time.Instant
@@ -16,14 +16,21 @@ case class BatchJob(id: String, brickID: String, state: JobState,
 case class BatchSchedule(jobs: List[BatchJob], currentInterval: Int)
 
 /** Abstraction over the resources required to run a vm */
-trait HostUsage {
+trait HostResources {
   val vcpus: Int
   val memory: Long
   val devices: Map[String, Int]
-  def + (added: HostUsage): HostUsage
-  def - (removed: HostUsage): HostUsage
+  def + (added: HostResources): HostResources
+  def - (removed: HostResources): HostResources
 }
 
-trait HostUsageCreator = {
-  def apply(vcpus: Int, memory: Long, devices: Map[String, Int]): HostUsage
+trait HostResourcesCreator {
+  def apply(vcpus: Int, memory: Long, devices: Map[String, Int]): HostResources
+
+  def empty: HostResources
 }
+
+/**
+  capabilities = hostResources potential if there were no running vms
+  */
+case class Host(capabilities: HostResources, id: String)
