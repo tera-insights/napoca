@@ -3,3 +3,8 @@
 Should be easy to set up: https://www.scala-sbt.org/release/docs/Publishing.html
 
 I like this example: https://github.com/milessabin/spray-json-shapeless/blob/50581f40f3d226dd86c502887c72af84bba16654/build.sbt
+
+** Publishing Locally
+
+Neat: =sbt publishLocal= publishes to =~/.ivy2/local=, which you can use in other
+projects on the same computer as described here: https://www.scala-sbt.org/release/docs/Publishing.html#Publishing+Locally
