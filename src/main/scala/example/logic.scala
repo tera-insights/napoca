@@ -1,4 +1,4 @@
-package scheduler // perhaps this should be renamed to reduce the change of collisions
+package com.terainsights.napoca
 
 import data._
 

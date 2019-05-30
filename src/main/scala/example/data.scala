@@ -1,4 +1,4 @@
-package scheduler.data
+package com.terainsights.napoca.data
 
 import java.util.UUID
 import java.time.Instant
