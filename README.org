@@ -1,7 +1,5 @@
 * Publishing
 
-As of writing, this library isn't yet published, and there is no configured
-task to do so (=sbt publish=). But, it should be pretty easy to set up if you
-follow the instructions here: https://www.scala-sbt.org/release/docs/Publishing.html
+Should be easy to set up: https://www.scala-sbt.org/release/docs/Publishing.html
 
-A good example seems to be this =build.sbt=: https://github.com/milessabin/spray-json-shapeless/blob/50581f40f3d226dd86c502887c72af84bba16654/build.sbt
+I like this example: https://github.com/milessabin/spray-json-shapeless/blob/50581f40f3d226dd86c502887c72af84bba16654/build.sbt
