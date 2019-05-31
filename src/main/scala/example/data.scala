@@ -3,15 +3,16 @@ package com.terainsights.napoca.data
 import java.util.UUID
 import java.time.Instant
 
-sealed trait JobState
-case object ToSchedule extends JobState
-case class Scheduled(hostToNumInstances: Map[String, Int], startInterval: Int) extends JobState
-case class Running(scheduled: Scheduled, vms: Set[UUID]) extends JobState
-
-case class BatchJob(id: String, brickID: String, state: JobState,
+case class BatchJob(id: String, brickID: String,
                     requiredIntervals: Int, schedulingUserID: String,
                     requiredHosts: Int, inserted: Instant,
                     adminSetPriority: Long)
+
+case class ScheduledBatchJob(hostToNumInstances: Map[String, Int],
+                             startInterval: Int,
+                             b: BatchJob)
+
+case class RunningBatchJob(vms: Set[UUID], s: ScheduledBatchJob)
 
 case class BatchSchedule(jobs: List[BatchJob], currentInterval: Int)
 

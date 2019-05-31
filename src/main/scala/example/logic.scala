@@ -6,46 +6,45 @@ import scala.concurrent.{ ExecutionContext, Future }
 
 case class HostWithCurrentUsage(host: Host, usage: HostResources)
 
+/**
+
+  insight: using an iterator keeps us from using different types of range types
+  in the future,e.g., times; is that a problem?
+
+  what are reasonable possible future versions of this constructor?
+
+  why is this a class? doesn't that just increase bug risk?
+
+  concept to extract: Host * BatchJob * AlreadyScheduledthisround * interval
+  */
 class Scheduler(hosts: Set[Host], brickIDToUsage: Map[String, HostResources],
-                old: BatchSchedule, intervalsToLookAt: Range,
+                runningJobs: List[RunningBatchJob], intervalsToLookAt: Range,
+                jobsToSchedule: List[BatchJob],
                 hostResCreator: HostResourcesCreator,
                 costToSchedule: HostWithCurrentUsage => Long) {
 
-  /** returned instead of returning a jobstate so that we can internally enforce
-    invariants */
-  case class ScheduledThisRound(jobID: String, s: Scheduled)
-
   // insight: this can be used to reduce room for calling error; maybe? https://github.com/milessabin/shapeless/wiki/Feature-overview:-shapeless-2.0.0#coproducts-and-discriminated-unions
 
-  /**
-    analysis: 3) that there are no other states, besides =running= we need to
-    consider when looking at the previous if we add such a state, this function
-    will become correct; software links with future versions of itself
-    */
-  private def getTotalResourceUsage(h: Host, toSchedule: BatchJob,
-                                    alreadyScheduledThisRound: List[ScheduledThisRound],
-                                    currentlyRunning: List[Running],
-                                    jobIDToRequiredIntervals: Map[String, Int],
-                                    interval: Int): HostResources = {
-    val relevantBrickIDNumInstances = old.jobs.foldLeft(List[(String, Int)]())( (l, job) =>
-      job.state match {
-        case r: Running =>
-          val inBounds = r.scheduled.startInterval + job.requiredIntervals > interval
-          r.scheduled.hostToNumInstances.get(h.id) match {
-            case Some(count) if inBounds => (job.brickID, count) :: l
-            case _ => l
-          }
+
+  case class PotentialMatch(h: Host, toSchedule: BatchJob, interval: Int,
+                            alreadyScheduledThisRound: List[ScheduledBatchJob])
+
+  private def getTotalResourceUsage(p: PotentialMatch) = {
+    val relevantBrickIDNumInstances = runningJobs.foldLeft(List[(String, Int)]()){ (l, job) =>
+      val inBounds = job.s.startInterval + job.s.b.requiredIntervals > p.interval
+      job.s.hostToNumInstances.get(p.h.id) match {
+        case Some(count) if inBounds => (job.s.b.brickID, count) :: l
         case _ => l
-      }) ++
-      alreadyScheduledThisRound.foldLeft(List[(String, Int)]())( (l, job) =>
-        val inBounds =
-          (s.startInterval + job.requiredIntervals > interval || // this propagates the need for `requredintervals`
-             interval + toSchedule.requiredIntervals > s.startInterval)
-            s.hostToNumInstances.get(h.id) match {
-              case Some(count) if inBounds => (job.brickID, count) :: l
-              case _ => l
-            }
-        )
+      }
+    } ++ p.alreadyScheduledThisRound.foldLeft(List[(String, Int)]()){ (l, job) =>
+      val inBounds =
+        (job.startInterval + job.b.requiredIntervals > p.interval ||
+           p.interval + p.toSchedule.requiredIntervals > job.startInterval)
+      job.hostToNumInstances.get(p.h.id) match {
+        case Some(count) if inBounds => (job.b.brickID, count) :: l
+        case _ => l
+      }
+    }
     relevantBrickIDNumInstances.foldLeft(
       hostResCreator.empty){
       (accum, tuple) =>
@@ -75,15 +74,10 @@ class Scheduler(hosts: Set[Host], brickIDToUsage: Map[String, HostResources],
     O(jobs + devices)
 
     */
-  private def numHostsSchedulableHere(
-    toSchedule: BatchJob,
-    alreadyScheduledThisRound: List[BatchJob],
-    h: Host, interval: Int): Int = {
-    val resourcesUsed: HostResources = getTotalResourceUsage(h, toSchedule,
-                                                             alreadyScheduledThisRound,
-                                                             interval)
-    val resourcesLeft: HostResources = h.capabilities - resourcesUsed
-    val jobResourcesOneInstance = brickIDToUsage(toSchedule.brickID)
+  private def numHostsSchedulableHere(p: PotentialMatch): Int = {
+    val resourcesUsed: HostResources = getTotalResourceUsage(p)
+    val resourcesLeft: HostResources = p.h.capabilities - resourcesUsed
+    val jobResourcesOneInstance = brickIDToUsage(p.toSchedule.brickID)
     val nCPUs = Math.floor(resourcesLeft.vcpus / jobResourcesOneInstance.vcpus)
     val mem = Math.floor(resourcesLeft.memory / jobResourcesOneInstance.memory)
     val dev = resourcesLeft.devices.foldLeft(Integer.MAX_VALUE){
@@ -98,23 +92,22 @@ class Scheduler(hosts: Set[Host], brickIDToUsage: Map[String, HostResources],
     Math.min(Math.min(nCPUs.toInt, mem.toInt), dev)
   }
 
-  private def getCostHere(interval: Int, h: Host,
-                       alreadyScheduledThisRound: List[BatchJob], job: BatchJob) =
+  private def getCostHere(p: PotentialMatch) =
   {
-    val resourcesAtTime = getTotalResourceUsage(h, job,
-                                                alreadyScheduledThisRound, interval)
-    costToSchedule(HostWithCurrentUsage(h, resourcesAtTime))
+    val resourcesAtTime = getTotalResourceUsage(p)
+    costToSchedule(HostWithCurrentUsage(p.h, resourcesAtTime))
   }
 
   /** runtime: O(times * times * hosts) */
   private def scheduleJobThatTakesOneHost(job: BatchJob,
-                                          alreadyScheduledThisRound: List[BatchJob]):
-      Option[Scheduled] = {
+                                          alreadyScheduledThisRound: List[ScheduledBatchJob]) = {
     var outerHostID: Option[String] = None // host to schedule on
     val firstInterval: Option[Int] = intervalsToLookAt.dropWhile{ time =>
       hosts.foldLeft(Option.empty[(String, Long)]){ case (accum, host) =>
-        if (0 < numHostsSchedulableHere(job, alreadyScheduledThisRound, host, time)) {
-          val costHere = getCostHere(time, host, alreadyScheduledThisRound, job)
+        val p = PotentialMatch(host, job, time,
+                               alreadyScheduledThisRound)
+        if (0 < numHostsSchedulableHere(p)) {
+          val costHere = getCostHere(p)
           accum match {
             case Some((_, prevMinCost)) if prevMinCost > costHere =>
               Some((host.id, costHere))
@@ -129,12 +122,12 @@ class Scheduler(hosts: Set[Host], brickIDToUsage: Map[String, HostResources],
       }
     }.headOption
     firstInterval map { x =>
-      Scheduled(hostToNumInstances = Map(outerHostID.get.toString -> 1),
-                startInterval = x) }
+      ScheduledBatchJob(hostToNumInstances = Map(outerHostID.get.toString -> 1),
+                startInterval = x, job) }
   }
 
   private def scheduleJobThatTakesMultipleHosts(
-    job: BatchJob, alreadyScheduledThisRound: List[BatchJob]): Option[Scheduled] = {
+    job: BatchJob, alreadyScheduledThisRound: List[ScheduledBatchJob]) = {
     import scala.collection.mutable.PriorityQueue
     implicit val ord = Ordering.fromLessThan[HostAllocInfo]((h1, h2) => h1.cost > h2.cost) // tested in console
     case class HostAllocInfo(cost: Long, nsched: Int, hostID: String)
@@ -143,12 +136,10 @@ class Scheduler(hosts: Set[Host], brickIDToUsage: Map[String, HostResources],
       // should be a minheap ordered by cost, but contains tuples (cost, num_schedulable)
       val lowestCostHosts = PriorityQueue.empty[HostAllocInfo]
       hosts.foreach{host =>
-        val num_schedulable: Int = numHostsSchedulableHere(job, alreadyScheduledThisRound,                                                             host, time)
+        val p = PotentialMatch(host, job, time, alreadyScheduledThisRound)
+        val num_schedulable: Int = numHostsSchedulableHere(p)
         if (num_schedulable > 0) {
-          lowestCostHosts.enqueue(HostAllocInfo(cost = getCostHere(
-                                                  time, host,
-                                                  alreadyScheduledThisRound,
-                                                  job),
+          lowestCostHosts.enqueue(HostAllocInfo(cost = getCostHere(p),
                                                 nsched = num_schedulable, hostID = host.id))
         }
       }
@@ -176,7 +167,7 @@ class Scheduler(hosts: Set[Host], brickIDToUsage: Map[String, HostResources],
         }
       }
 
-      Scheduled(hostToNumInstances = hostToNumInstances, startInterval = x)
+      ScheduledBatchJob(hostToNumInstances = hostToNumInstances, startInterval = x, job)
     }
   }
 
@@ -187,14 +178,14 @@ class Scheduler(hosts: Set[Host], brickIDToUsage: Map[String, HostResources],
 
     perhaps this should return a Future[List[Scheduled]]?
    */
-  def runSchedulingAlgorithm()(implicit ec: ExecutionContext): Future[List[ScheduledThisRound]] = Future {
+  def runSchedulingAlgorithm()(implicit ec: ExecutionContext): Future[List[ScheduledBatchJob]] = Future {
     val orderedJobsToSchedule =
-      old.jobs.filter(x => x.state == ToSchedule).sortWith((l, r) =>
+      jobsToSchedule.sortWith((l, r) =>
         // true iff l goes before r
         l.inserted.isBefore(r.inserted) &&
           l.adminSetPriority > r.adminSetPriority
       )
-    var result: List[ScheduledThisRound] = List.empty
+    var result: List[ScheduledBatchJob] = List.empty
     orderedJobsToSchedule.iterator.takeWhile{ job =>
       val schedulingResult = job.requiredHosts match {
         case 1 => scheduleJobThatTakesOneHost(job, result)
@@ -202,8 +193,8 @@ class Scheduler(hosts: Set[Host], brickIDToUsage: Map[String, HostResources],
       }
       schedulingResult match {
         case None => false
-        case Some(sched) =>
-          ScheduledThisRound(jobID = job.id, s = sched) :: result
+        case Some(s) =>
+          s :: result
           true
       }
     }
