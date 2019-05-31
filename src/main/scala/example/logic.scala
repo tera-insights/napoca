@@ -11,34 +11,41 @@ class Scheduler(hosts: Set[Host], brickIDToUsage: Map[String, HostResources],
                 hostResCreator: HostResourcesCreator,
                 costToSchedule: HostWithCurrentUsage => Long) {
 
+  /** returned instead of returning a jobstate so that we can internally enforce
+    invariants */
+  case class ScheduledThisRound(jobID: String, s: Scheduled)
+
+  // insight: this can be used to reduce room for calling error; maybe? https://github.com/milessabin/shapeless/wiki/Feature-overview:-shapeless-2.0.0#coproducts-and-discriminated-unions
+
+  /**
+    analysis: 3) that there are no other states, besides =running= we need to
+    consider when looking at the previous if we add such a state, this function
+    will become correct; software links with future versions of itself
+    */
   private def getTotalResourceUsage(h: Host, toSchedule: BatchJob,
-                                    alreadyScheduledThisRound: List[BatchJob],
+                                    alreadyScheduledThisRound: List[ScheduledThisRound],
+                                    currentlyRunning: List[Running],
+                                    jobIDToRequiredIntervals: Map[String, Int],
                                     interval: Int): HostResources = {
-    val relevantBrickIDNumInstances: List[(String, Int)] =
-      old.jobs.foldLeft(List[(String, Int)]())( (l, job) =>
-        job.state match {
-          case r: Running =>
-            val inBounds = r.scheduled.startInterval + job.requiredIntervals > interval
-            r.scheduled.hostToNumInstances.get(h.id) match {
+    val relevantBrickIDNumInstances = old.jobs.foldLeft(List[(String, Int)]())( (l, job) =>
+      job.state match {
+        case r: Running =>
+          val inBounds = r.scheduled.startInterval + job.requiredIntervals > interval
+          r.scheduled.hostToNumInstances.get(h.id) match {
+            case Some(count) if inBounds => (job.brickID, count) :: l
+            case _ => l
+          }
+        case _ => l
+      }) ++
+      alreadyScheduledThisRound.foldLeft(List[(String, Int)]())( (l, job) =>
+        val inBounds =
+          (s.startInterval + job.requiredIntervals > interval || // this propagates the need for `requredintervals`
+             interval + toSchedule.requiredIntervals > s.startInterval)
+            s.hostToNumInstances.get(h.id) match {
               case Some(count) if inBounds => (job.brickID, count) :: l
               case _ => l
             }
-          case _ => l
-        }) ++
-        alreadyScheduledThisRound.foldLeft(List[(String, Int)]())( (l, job) =>
-          job.state match {
-            case s: Scheduled =>
-              val inBounds =
-                (s.startInterval + job.requiredIntervals > interval ||
-                   interval + toSchedule.requiredIntervals > s.startInterval)
-              s.hostToNumInstances.get(h.id) match {
-                case Some(count) if inBounds => (job.brickID, count) :: l
-                case _ => l
-              }
-            case r: Running =>
-              throw new RuntimeException("Jobs shouldn't be scheduled to the running state")
-            case _ => l
-          })
+        )
     relevantBrickIDNumInstances.foldLeft(
       hostResCreator.empty){
       (accum, tuple) =>
@@ -57,7 +64,6 @@ class Scheduler(hosts: Set[Host], brickIDToUsage: Map[String, HostResources],
        of 2s, this function could still return 3; this is maybe misleading since we pass
        the whole =toSchedule= object in, which may contain lots of metadata
     2) that the brick IDs are strings (generics might help here; would that be hard in scala?)
-    3) that there are no other states, besides =running= we need to consider when looking at the previous
     schedule; e.g., we could have a mandatory cleanup round and want to denote this;
     or we may want to add a round that can't be shut down; maybe it's only in this round for
     some amount of time? wildcard match on the job state created this assumption
@@ -181,14 +187,14 @@ class Scheduler(hosts: Set[Host], brickIDToUsage: Map[String, HostResources],
 
     perhaps this should return a Future[List[Scheduled]]?
    */
-  def runSchedulingAlgorithm()(implicit ec: ExecutionContext): Future[List[BatchJob]] = Future {
+  def runSchedulingAlgorithm()(implicit ec: ExecutionContext): Future[List[ScheduledThisRound]] = Future {
     val orderedJobsToSchedule =
       old.jobs.filter(x => x.state == ToSchedule).sortWith((l, r) =>
         // true iff l goes before r
         l.inserted.isBefore(r.inserted) &&
           l.adminSetPriority > r.adminSetPriority
       )
-    var result: List[BatchJob] = List.empty
+    var result: List[ScheduledThisRound] = List.empty
     orderedJobsToSchedule.iterator.takeWhile{ job =>
       val schedulingResult = job.requiredHosts match {
         case 1 => scheduleJobThatTakesOneHost(job, result)
@@ -197,11 +203,10 @@ class Scheduler(hosts: Set[Host], brickIDToUsage: Map[String, HostResources],
       schedulingResult match {
         case None => false
         case Some(sched) =>
-          job.copy(state = sched) :: result
+          ScheduledThisRound(jobID = job.id, s = sched) :: result
           true
       }
     }
     result
   }
 }
-
