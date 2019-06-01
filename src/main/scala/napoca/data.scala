@@ -1,4 +1,4 @@
-package com.terainsights.napoca.data
+package com.terainsights.napoca
 
 import java.time.Instant
 

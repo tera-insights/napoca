@@ -1,7 +1,5 @@
 package com.terainsights.napoca
 
-import data._
-
 import scala.concurrent.{ ExecutionContext, Future }
 import java.time.Instant
 
@@ -10,7 +8,7 @@ object Scheduler {
 
   case class SchedulerInfo(hosts: Set[Host], brickIDToUsage: Map[String, HostResources],
                            runningJobs: List[RunningBatchJob], intervalsToLookAt: Range,
-                           jobsToSchedule: List[BatchJob],
+                           toSchedule: List[BatchJob],
                            hostResCreator: HostResourcesCreator,
                            costToSchedule: HostWithCurrentUsage => Long)
 
@@ -162,7 +160,7 @@ object Scheduler {
 
   def runSchedulingAlgorithm(s: SchedulerInfo)(implicit ec: ExecutionContext): Future[List[ScheduledBatchJob]] = Future {
     val orderedJobsToSchedule =
-      s.jobsToSchedule.sortWith((l, r) =>
+      s.toSchedule.sortWith((l, r) =>
         // true iff l goes before r
         l.priority(PriorityInfo(Instant.now)) > r.priority(PriorityInfo(Instant.now))
       )

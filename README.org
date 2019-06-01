@@ -2,9 +2,26 @@
 
 Should be easy to set up: https://www.scala-sbt.org/release/docs/Publishing.html
 
-I like this example: https://github.com/milessabin/spray-json-shapeless/blob/50581f40f3d226dd86c502887c72af84bba16654/build.sbt
+I like this example:
+https://github.com/milessabin/spray-json-shapeless/blob/50581f40f3d226dd86c502887c72af84bba16654/build.sbt
 
 ** Publishing Locally
+Neat: =sbt publishLocal= publishes to =~/.ivy2/local=, which you can use in
+other projects on the same computer as described here:
+https://www.scala-sbt.org/release/docs/Publishing.html#Publishing+Locally
+* Testing
 
-Neat: =sbt publishLocal= publishes to =~/.ivy2/local=, which you can use in other
-projects on the same computer as described here: https://www.scala-sbt.org/release/docs/Publishing.html#Publishing+Locally
+There is some progress on testing. I think that the most important thing is to
+test based on the correctness properties of an outputted schedule:
+
+- for a job to be scheuduled, all jobs with higher priorities must also have been scheduled
+- the scheduler doesn't look outside of the given range of intervals
+- a job is not scheduled if it violates resource constraints on a host
+
+I partially verified the first one in =SanitySpec.scala=
+
+The second one seems to be a subproblem of the third. 
+
+The last one could be verified by walking the schedule and looking at the resource usage on each host
+at each time.
+
