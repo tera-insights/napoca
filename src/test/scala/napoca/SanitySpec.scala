@@ -32,7 +32,7 @@ object BaseCreator extends HostResourcesCreator {
 
 class SanitySpec extends FlatSpec with Matchers {
   val base = Scheduler.SchedulerInfo(Set(), Map(), List(),
-                                     Range.inclusive(50, 100), List(), BaseCreator,
+                                     Range.inclusive(50, 100), Map(), BaseCreator,
                                      { _ => 0L })
 
   val cpuBrickID = "cpu"
@@ -47,28 +47,28 @@ class SanitySpec extends FlatSpec with Matchers {
     val brickIDToUsage = Map(cpuBrickID -> simpleCPURes, memBrickID -> simpleMemRes)
     val now = Instant.now
     val mine = base.copy(
-      hosts = hosts, toSchedule = List(
-        BatchJob("a", inserted = now, brickID = cpuBrickID,
+      hosts = hosts, toSchedule = Map(
+        "a" -> BatchJob(inserted = now, brickID = cpuBrickID,
                  requiredIntervals = 50, requiredHosts = 1,
 
                  adminSetPriority = 100L ),
 
-        BatchJob("b", inserted = now, brickID = cpuBrickID,
+        "b" -> BatchJob(inserted = now, brickID = cpuBrickID,
                  requiredIntervals = 50, requiredHosts = 1,
                  adminSetPriority = 90L ),
 
-        BatchJob("c", inserted = now, brickID = cpuBrickID,
+        "c" -> BatchJob(inserted = now, brickID = cpuBrickID,
                  requiredIntervals = 50, requiredHosts = 1,
                  adminSetPriority = 80L ),
 
-        BatchJob("d", inserted = now, brickID = memBrickID,
+        "d" -> BatchJob(inserted = now, brickID = memBrickID,
                  requiredIntervals = 50, requiredHosts = 1,
                  adminSetPriority = 70L ))
     )
     for {
       res <- Scheduler.runSchedulingAlgorithm(mine)
     } yield {
-      res.map(_.b.id) shouldEqual List("a", "b")
+      res.keySet shouldEqual Set("a", "b")
     }
   }
 }

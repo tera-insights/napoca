@@ -9,7 +9,7 @@ import java.time.Instant
   *
   * We also calculate the priority for you.
   */
-case class BatchJob(id: String, brickID: String,
+case class BatchJob(brickID: String,
                     requiredIntervals: Int, requiredHosts: Int,
                     inserted: Instant,
                     adminSetPriority: Long)

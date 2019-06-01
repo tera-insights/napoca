@@ -8,12 +8,12 @@ object Scheduler {
 
   case class SchedulerInfo(hosts: Set[Host], brickIDToUsage: Map[String, HostResources],
                            runningJobs: List[RunningBatchJob], intervalsToLookAt: Range,
-                           toSchedule: List[BatchJob],
+                           toSchedule: Map[String, BatchJob],
                            hostResCreator: HostResourcesCreator,
                            costToSchedule: HostWithCurrentUsage => Long)
 
   private case class PotentialMatch(h: Host, toSchedule: BatchJob, interval: Int,
-                            alreadyScheduledThisRound: List[ScheduledBatchJob])
+                            alreadyScheduledThisRound: Iterable[ScheduledBatchJob])
 
 
   private def getTotalResourceUsage(p: PotentialMatch, s: SchedulerInfo) = {
@@ -86,7 +86,7 @@ object Scheduler {
 
   /** runtime: O(times * times * hosts) */
   private def scheduleJobThatTakesOneHost(s: SchedulerInfo, job: BatchJob,
-                                          alreadyScheduledThisRound: List[ScheduledBatchJob]) = {
+                                          alreadyScheduledThisRound: Iterable[ScheduledBatchJob]) = {
     var outerHostID: Option[String] = None // host to schedule on
     val firstInterval: Option[Int] = s.intervalsToLookAt.dropWhile{ time =>
       s.hosts.foldLeft(Option.empty[(String, Long)]){ case (accum, host) =>
@@ -114,7 +114,7 @@ object Scheduler {
 
   private def scheduleJobThatTakesMultipleHosts(
     s: SchedulerInfo,
-    job: BatchJob, alreadyScheduledThisRound: List[ScheduledBatchJob]) = {
+    job: BatchJob, alreadyScheduledThisRound: Iterable[ScheduledBatchJob]) = {
     import scala.collection.mutable.PriorityQueue
     implicit val ord = Ordering.fromLessThan[HostAllocInfo]((h1, h2) => h1.cost > h2.cost) // tested in console
     case class HostAllocInfo(cost: Long, nsched: Int, hostID: String)
@@ -158,23 +158,31 @@ object Scheduler {
     }
   }
 
-  def runSchedulingAlgorithm(s: SchedulerInfo)(implicit ec: ExecutionContext): Future[List[ScheduledBatchJob]] = Future {
+  /** produces a map of job id -> scheduled */
+  def runSchedulingAlgorithm(s: SchedulerInfo)(implicit ec: ExecutionContext):
+      Future[Map[String, ScheduledBatchJob]] = Future {
     val orderedJobsToSchedule =
-      s.toSchedule.sortWith((l, r) =>
-        // true iff l goes before r
-        l.inserted.isBefore(r.inserted) &&
+      s.toSchedule.toList.sortWith{case (kv1: (String, BatchJob), kv2) =>
+        kv1 match {
+          case (_, l) =>
+            kv2 match {
+              case (_, r) =>
+                // true iff l goes before r
+                l.inserted.isBefore(r.inserted) &&
                   l.adminSetPriority > r.adminSetPriority
-      )
-    var result: List[ScheduledBatchJob] = List.empty
-    orderedJobsToSchedule.iterator.takeWhile{ job =>
+            }
+        }
+      }
+    var result: Map[String, ScheduledBatchJob] = Map()
+    orderedJobsToSchedule.iterator.takeWhile{ case (id, job) =>
       val schedulingResult = job.requiredHosts match {
-        case 1 => scheduleJobThatTakesOneHost(s, job, result)
-        case _ => scheduleJobThatTakesMultipleHosts(s, job, result)
+        case 1 => scheduleJobThatTakesOneHost(s, job, result.values)
+        case _ => scheduleJobThatTakesMultipleHosts(s, job, result.values)
       }
       schedulingResult match {
         case None => false
         case Some(s) =>
-          s :: result
+          result + (id -> s)
           true
       }
     }
