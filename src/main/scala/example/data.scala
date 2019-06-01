@@ -17,7 +17,7 @@ case class ScheduledBatchJob(hostToNumInstances: Map[String, Int],
                              startInterval: Int,
                              b: BatchJob)
 
-case class RunningBatchJob(vms: Set[UUID], s: ScheduledBatchJob)
+case class RunningBatchJob(vms: Set[String], s: ScheduledBatchJob)
 
 case class BatchSchedule(jobs: List[BatchJob], currentInterval: Int)
 
