@@ -162,7 +162,8 @@ object Scheduler {
     val orderedJobsToSchedule =
       s.toSchedule.sortWith((l, r) =>
         // true iff l goes before r
-        l.priority(PriorityInfo(Instant.now)) > r.priority(PriorityInfo(Instant.now))
+        l.inserted.isBefore(r.inserted) &&
+                  l.adminSetPriority > r.adminSetPriority
       )
     var result: List[ScheduledBatchJob] = List.empty
     orderedJobsToSchedule.iterator.takeWhile{ job =>

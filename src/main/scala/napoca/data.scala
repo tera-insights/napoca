@@ -2,16 +2,17 @@ package com.terainsights.napoca
 
 import java.time.Instant
 
-case class PriorityInfo(now: Instant)
-
 /**
   * We assume that all IDs are coercible to a string type. We thought about adding
   * type parameters, but this doesn't seem like a critical feature now and adds
   * less benefit than, say, writing tests and coming up with a simpler API.
+  *
+  * We also calculate the priority for you.
   */
 case class BatchJob(id: String, brickID: String,
                     requiredIntervals: Int, requiredHosts: Int,
-                    priority: PriorityInfo => Long)
+                    inserted: Instant,
+                    adminSetPriority: Long)
 
 case class ScheduledBatchJob(hostToNumInstances: Map[String, Int],
                              startInterval: Int,

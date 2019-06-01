@@ -5,6 +5,7 @@ import scalaz._
 import Scalaz._
 import scala.concurrent._
 import ExecutionContext.Implicits.global
+import java.time.Instant
 
 import com.terainsights.napoca._
 
@@ -44,19 +45,25 @@ class SanitySpec extends FlatSpec with Matchers {
     val hosts = Set(Host(simpleCPURes, "a"), Host(simpleCPURes, "b"),
                     Host(simpleMemRes, "c"))
     val brickIDToUsage = Map(cpuBrickID -> simpleCPURes, memBrickID -> simpleMemRes)
+    val now = Instant.now
     val mine = base.copy(
       hosts = hosts, toSchedule = List(
-        BatchJob("a", brickID = cpuBrickID, requiredIntervals = 50, requiredHosts = 1,
-                 priority = { _ => 100L }),
+        BatchJob("a", inserted = now, brickID = cpuBrickID,
+                 requiredIntervals = 50, requiredHosts = 1,
 
-        BatchJob("b", brickID = cpuBrickID, requiredIntervals = 50, requiredHosts = 1,
-                 priority = { _ => 90L }),
+                 adminSetPriority = 100L ),
 
-        BatchJob("c", brickID = cpuBrickID, requiredIntervals = 50, requiredHosts = 1,
-                 priority = { _ => 80L }),
+        BatchJob("b", inserted = now, brickID = cpuBrickID,
+                 requiredIntervals = 50, requiredHosts = 1,
+                 adminSetPriority = 90L ),
 
-        BatchJob("d", brickID = memBrickID, requiredIntervals = 50, requiredHosts = 1,
-                 priority = { _ => 70L }))
+        BatchJob("c", inserted = now, brickID = cpuBrickID,
+                 requiredIntervals = 50, requiredHosts = 1,
+                 adminSetPriority = 80L ),
+
+        BatchJob("d", inserted = now, brickID = memBrickID,
+                 requiredIntervals = 50, requiredHosts = 1,
+                 adminSetPriority = 70L ))
     )
     for {
       res <- Scheduler.runSchedulingAlgorithm(mine)
