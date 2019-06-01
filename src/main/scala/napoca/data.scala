@@ -20,8 +20,6 @@ case class ScheduledBatchJob(hostToNumInstances: Map[String, Int],
 
 case class RunningBatchJob(vms: Set[String], s: ScheduledBatchJob)
 
-case class BatchSchedule(jobs: List[BatchJob], currentInterval: Int)
-
 /** Abstraction over the resources required to run a vm */
 trait HostResources {
   val vcpus: Int
