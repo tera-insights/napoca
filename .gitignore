@@ -27,3 +27,6 @@ project/plugins/project/
 
 # Local configuration files
 */src/main/resources/application.conf
+
+# Mac
+.DS_Store
