@@ -14,11 +14,28 @@ case class BatchJob(brickID: String,
                     inserted: Instant,
                     adminSetPriority: Long)
 
-case class ScheduledBatchJob(hostToNumInstances: Map[String, Int],
-                             startInterval: Int,
-                             b: BatchJob)
+case class ScheduledBatchJob(
+  hostToNumInstances: Map[String, Int],
+  startInterval: Int,
+  b: BatchJob
+) {
+  /**
+   * Returns the first interval at which the job is no longer scheduled to run.
+   * This is one past the last interval in which the job is running.
+   */
+  def endInterval: Int = startInterval + b.requiredIntervals
 
-case class RunningBatchJob(vms: Set[String], s: ScheduledBatchJob)
+  /**
+   * Returns the last interval in which the job is scheduled to run.
+   */
+  def lastInterval: Int = endInterval - 1
+}
+
+case class RunningBatchJob(vms: Set[String], s: ScheduledBatchJob) {
+  def startInterval: Int = s.startInterval
+  def endInterval: Int = s.endInterval
+  def lastInterval: Int = s.lastInterval
+}
 
 /** Abstraction over the resources required to run a vm */
 trait HostResources {
