@@ -5,12 +5,13 @@ import java.time.Instant
 
 object Scheduler {
   case class HostWithCurrentUsage(host: Host, usage: HostResources)
+  type CostFunction = (HostWithCurrentUsage) => Double
 
   case class SchedulerInfo(hosts: Set[Host], brickIDToUsage: Map[String, HostResources],
                            runningJobs: List[RunningBatchJob], intervalsToLookAt: Range,
                            toSchedule: Map[String, BatchJob],
                            hostResCreator: HostResourcesCreator,
-                           costToSchedule: HostWithCurrentUsage => Long)
+                           costToSchedule: CostFunction)
 
   private case class PotentialMatch(h: Host, toSchedule: BatchJob, interval: Int,
                             alreadyScheduledThisRound: Iterable[ScheduledBatchJob])
@@ -89,7 +90,7 @@ object Scheduler {
                                           alreadyScheduledThisRound: Iterable[ScheduledBatchJob]) = {
     var outerHostID: Option[String] = None // host to schedule on
     val firstInterval: Option[Int] = s.intervalsToLookAt.dropWhile{ time =>
-      s.hosts.foldLeft(Option.empty[(String, Long)]){ case (accum, host) =>
+      s.hosts.foldLeft(Option.empty[(String, Double)]){ case (accum, host) =>
         val p = PotentialMatch(host, job, time,
                                alreadyScheduledThisRound)
         if (0 < numHostsSchedulableHere(s, p)) {
@@ -115,9 +116,12 @@ object Scheduler {
   private def scheduleJobThatTakesMultipleHosts(
     s: SchedulerInfo,
     job: BatchJob, alreadyScheduledThisRound: Iterable[ScheduledBatchJob]) = {
+
     import scala.collection.mutable.PriorityQueue
+
+    case class HostAllocInfo(cost: Double, nsched: Int, hostID: String)
     implicit val ord = Ordering.fromLessThan[HostAllocInfo]((h1, h2) => h1.cost > h2.cost) // tested in console
-    case class HostAllocInfo(cost: Long, nsched: Int, hostID: String)
+
     var mcHosts: Option[PriorityQueue[HostAllocInfo]] = None
     val firstInterval: Option[Int] = s.intervalsToLookAt.dropWhile { time =>
       // should be a minheap ordered by cost, but contains tuples (cost, num_schedulable)
