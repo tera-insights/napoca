@@ -17,6 +17,10 @@ project/plugins/project/
 .worksheet
 .ensime
 .ensime_cache
+.bloop
+.metals
+project/metals.sbt
+
 
 # Sublime
 *.sublime-project
